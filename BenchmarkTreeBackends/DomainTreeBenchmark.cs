@@ -11,223 +11,188 @@ using System.Runtime.CompilerServices;
 
 namespace BenchmarkTreeBackends
 {
+
     [MemoryDiagnoser]
+    [SimpleJob(warmupCount: HarnessConfig.WarmupIterations,
+               iterationCount: HarnessConfig.BenchmarkIterations)]
     public class DomainTreeBenchmark
     {
+        private IBenchmarkTarget<string> _adaptedDefaultTree;
+
+        // Adapted wrappers — typed as the interface, not the concrete adapter
+        private IBenchmarkTarget<string> _adaptedDict;
+
+        private IBenchmarkTarget<string> _adaptedLmdb;
+
+        private IBenchmarkTarget<string> _adaptedLmdb2;
+
+        private IBenchmarkTarget<string> _adaptedMmap;
+
+        private IBenchmarkTarget<string> _adaptedMmap2;
+
+        private IBenchmarkTarget<string> _adaptedTrie;
+
+        private IBenchmarkTarget<string> _adaptedTrieWire;
+
+        // Raw backing stores
         private ConcurrentDictionary<string, string> _concurrentDict;
-        private DomainTree<string> _defaultTree;
+
         private DatabaseBackedDomainTree<string> _dbBackedTree;
         private DatabaseBackedDomainTree<string> _dbBackedTree2;
-        private MmapBackedDomainTree<string> _mmapBackedTree;
-        private MmapBackedDomainTree<string> _mmapBackedTree2;
+        private DomainTree<string> _defaultTree;
         private DnsTrie<string> _dnsTrie;
         private DnsTrie<string> _dnsTrieWireFormat;
-
-        private const int N = 10_000_000;
-
-        // Only domains valid for BOTH implementations
-        private static readonly string[] TestDomains =
-        {
-            "google.com", "www.google.com", "mail.google.com", "drive.google.com",
-            "microsoft.com", "www.microsoft.com", "login.microsoft.com",
-            "github.com", "www.github.com", "api.github.com",
-            "example.com", "www.example.com", "api.example.com",
-
-            "wikipedia.org", "www.wikipedia.org", "en.wikipedia.org",
-            "mozilla.org", "developer.mozilla.org",
-
-            "a.b.c.d.e.f.g.h.i.j.k.example.com",
-            "bbc.co.uk", "news.bbc.co.uk",
-            "golang.org", "pkg.go.dev",
-
-            "a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.com",
-
-            "xn--hxajbheg2az3al.gr",
-
-            "*.google.com"
-        };
-
-        [GlobalSetup]
-        public void Setup()
-        {
-            _concurrentDict = new ConcurrentDictionary<string, string>();
-            _defaultTree = new DomainTree<string>();
-            _dbBackedTree = new DatabaseBackedDomainTree<string>("treetest", new MessagePackCodec<string>());
-            _dbBackedTree2 = new DatabaseBackedDomainTree<string>("treetest2", new Utf8StringCodec());
-            _mmapBackedTree = new MmapBackedDomainTree<string>("treetest_mmap", new MessagePackCodec<string>());
-            _mmapBackedTree2 = new MmapBackedDomainTree<string>("treetest_mmap2", new Utf8StringCodec());
-            _dnsTrie = new DnsTrie<string>();
-            _dnsTrieWireFormat = new DnsTrie<string>(wireFormat: true);
-
-            SeedDict(_concurrentDict);
-            Seed(_defaultTree);
-            Seed(_dbBackedTree);
-            Seed(_dbBackedTree2);
-            Seed(_mmapBackedTree);
-            Seed(_mmapBackedTree2);
-            SeedTrie(_dnsTrie);
-            SeedTrie(_dnsTrieWireFormat);
-        }
+        private MmapBackedDomainTree<string> _mmapBackedTree;
+        private MmapBackedDomainTree<string> _mmapBackedTree2;
 
         [GlobalCleanup]
         public void Cleanup()
         {
             _defaultTree.Clear();
-
             _dbBackedTree.Dispose();
-            if (Directory.Exists("treetest"))
-            {
-                Directory.Delete("treetest", true);
-            }
-
             _dbBackedTree2.Dispose();
-            if (Directory.Exists("treetest2"))
-            {
-                Directory.Delete("treetest2", true);
-            }
-
             _mmapBackedTree.Dispose();
-            if (File.Exists("treetest_mmap"))
-            {
-                File.Delete("treetest_mmap");
-            }
             _mmapBackedTree2.Dispose();
-            if (File.Exists("treetest_mmap2"))
-            {
-                File.Delete("treetest_mmap2");
-            }
+
+            foreach (string? dir in new[] { "ct_lmdb1", "ct_lmdb2" })
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+
+            foreach (string? file in new[] { "ct_mmap1", "ct_mmap2" })
+                if (File.Exists(file)) File.Delete(file);
         }
 
-        private static void Seed(IBackend<string, string> tree)
-        {
-            _ = tree.TryAdd("com", "com-root");
-            _ = tree.TryAdd("org", "org-root");
-
-            var subs = new[] { "google", "microsoft", "github", "example" };
-            foreach (var sub in subs)
-            {
-                _ = tree.TryAdd($"{sub}.com", sub);
-                _ = tree.TryAdd($"www.{sub}.com", sub);
-                _ = tree.TryAdd($"api.{sub}.com", sub);
-                _ = tree.TryAdd($"mail.{sub}.com", sub);
-            }
-
-            var deep = "a";
-            for (int i = 0; i < 25; i++)
-                deep = $"{deep}.a";
-            deep += ".com";
-
-            _ = tree.TryAdd(deep, "deep");
-        }
-
-        private static void SeedDict(ConcurrentDictionary<string, string> tree)
-        {
-            _ = tree.TryAdd("com", "com-root");
-            _ = tree.TryAdd("org", "org-root");
-
-            var subs = new[] { "google", "microsoft", "github", "example" };
-            foreach (var sub in subs)
-            {
-                _ = tree.TryAdd($"{sub}.com", sub);
-                _ = tree.TryAdd($"www.{sub}.com", sub);
-                _ = tree.TryAdd($"api.{sub}.com", sub);
-                _ = tree.TryAdd($"mail.{sub}.com", sub);
-            }
-
-            var deep = "a";
-            for (int i = 0; i < 25; i++)
-                deep = $"{deep}.a";
-            deep += ".com";
-
-            _ = tree.TryAdd(deep, "deep");
-        }
-
-        private static void SeedTrie(DnsTrie<string> trie)
-        {
-            _ = trie.Set("com", "com-root");
-            _ = trie.Set("org", "org-root");
-
-            var subs = new[] { "google", "microsoft", "github", "example" };
-            foreach (var sub in subs)
-            {
-                _ = trie.Set($"{sub}.com", sub);
-                _ = trie.Set($"www.{sub}.com", sub);
-                _ = trie.Set($"api.{sub}.com", sub);
-                _ = trie.Set($"mail.{sub}.com", sub);
-            }
-
-            var deep = "a";
-            for (int i = 0; i < 25; i++)
-                deep = $"{deep}.a";
-            deep += ".com";
-
-            _ = trie.Set(deep, "deep");
-        }
-
-        // SAME workload, different trees
         [Benchmark(Baseline = true)]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void ConcurrentDictionary()
-        {
-            for (int i = 0; i < N; i++)
-                _concurrentDict.TryGetValue(TestDomains[i % TestDomains.Length], out _);
-        }
+        public void Concurrent_ConcurrentDictionary()
+            => ConcurrentBenchmarkRunner.Run("ConcurrentDictionary", _adaptedDict, "bench-value");
 
         [Benchmark]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void InMemoryDomainTree()
-        {
-            for (int i = 0; i < N; i++)
-                _defaultTree.TryGet(TestDomains[i % TestDomains.Length], out _);
-        }
+        public void Concurrent_DnsTrie()
+            => ConcurrentBenchmarkRunner.Run("DnsTrie", _adaptedTrie, "bench-value");
 
         [Benchmark]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void LmdbBackedDomainTree()
-        {
-            for (int i = 0; i < N; i++)
-                _dbBackedTree.TryGet(TestDomains[i % TestDomains.Length], out _);
-        }
+        public void Concurrent_DnsTrieWireFormat()
+            => ConcurrentBenchmarkRunner.Run("DnsTrie_Wire", _adaptedTrieWire, "bench-value");
+
+       [Benchmark]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void Concurrent_InMemoryDomainTree()
+            => ConcurrentBenchmarkRunner.Run("InMemoryDomainTree", _adaptedDefaultTree, "bench-value");
 
         [Benchmark]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void LmdbBackedDomainTree2()
-        {
-            for (int i = 0; i < N; i++)
-                _dbBackedTree2.TryGet(TestDomains[i % TestDomains.Length], out _);
-        }
-
+        public void Concurrent_LmdbDomainTree_MessagePack()
+            => ConcurrentBenchmarkRunner.Run("LmdbDomainTree_MP", _adaptedLmdb, "bench-value");
 
         [Benchmark]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void MmapBackedDomainTree()
-        {
-            for (int i = 0; i < N; i++)
-                _mmapBackedTree.TryGet(TestDomains[i % TestDomains.Length], out _);
-        }
+        public void Concurrent_LmdbDomainTree_Utf8()
+            => ConcurrentBenchmarkRunner.Run("LmdbDomainTree_Utf8", _adaptedLmdb2, "bench-value");
 
         [Benchmark]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void MmapBackedDomainTree2()
-        {
-            for (int i = 0; i < N; i++)
-                _mmapBackedTree2.TryGet(TestDomains[i % TestDomains.Length], out _);
-        }
+        public void Concurrent_MmapDomainTree_MessagePack()
+            => ConcurrentBenchmarkRunner.Run("MmapDomainTree_MP", _adaptedMmap, "bench-value");
 
         [Benchmark]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void DnsTrie()
+        public void Concurrent_MmapDomainTree_Utf8()
+            => ConcurrentBenchmarkRunner.Run("MmapDomainTree_Utf8", _adaptedMmap2, "bench-value");
+
+        [GlobalSetup]
+        public void Setup()
         {
-            for (int i = 0; i < N; i++)
-                _dnsTrie.TryGet(TestDomains[i % TestDomains.Length], out _);
+            // Construct backing stores
+            _concurrentDict = new ConcurrentDictionary<string, string>();
+            _defaultTree = new DomainTree<string>();
+            _dbBackedTree = new DatabaseBackedDomainTree<string>("ct_lmdb1", new MessagePackCodec<string>());
+            _dbBackedTree2 = new DatabaseBackedDomainTree<string>("ct_lmdb2", new Utf8StringCodec());
+            _mmapBackedTree = new MmapBackedDomainTree<string>("ct_mmap1", new MessagePackCodec<string>());
+            _mmapBackedTree2 = new MmapBackedDomainTree<string>("ct_mmap2", new Utf8StringCodec());
+            _dnsTrie = new DnsTrie<string>();
+            _dnsTrieWireFormat = new DnsTrie<string>(wireFormat: true);
+
+            // Seed all stores before creating adapters
+            SeedAll();
+
+            // Wire up adapters using the correct concrete type per backing store.
+            // requiresExternalLock = true for any store without a documented
+            // concurrent-safe contract; remove the lock once safety is confirmed.
+            _adaptedDict = new ConcurrentDictionaryAdapter<string>(_concurrentDict);
+            _adaptedDefaultTree = new BackendAdapter<string>(_defaultTree, requiresExternalLock: true);
+            _adaptedLmdb = new BackendAdapter<string>(_dbBackedTree, requiresExternalLock: true);
+            _adaptedLmdb2 = new BackendAdapter<string>(_dbBackedTree2, requiresExternalLock: true);
+            _adaptedMmap = new BackendAdapter<string>(_mmapBackedTree, requiresExternalLock: true);
+            _adaptedMmap2 = new BackendAdapter<string>(_mmapBackedTree2, requiresExternalLock: true);
+            _adaptedTrie = new DnsTrieAdapter<string>(_dnsTrie, requiresExternalLock: true);
+            _adaptedTrieWire = new DnsTrieAdapter<string>(_dnsTrieWireFormat, requiresExternalLock: true);
         }
 
-        [Benchmark]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public void DnsTrieWireFormat()
+        // ------------------------------------------------------------------
+        // Seed helpers
+        // ------------------------------------------------------------------
+
+        private static string BuildDeepDomain()
         {
-            for (int i = 0; i < N; i++)
-                _dnsTrieWireFormat.TryGet(TestDomains[i % TestDomains.Length], out _);
+            string d = "a";
+            for (int i = 0; i < 25; i++) d = $"{d}.a";
+            return d + ".com";
+        }
+
+        private static void SeedBackend(IBackend<string, string> b)
+        {
+            b.TryAdd("com", "com-root");
+            b.TryAdd("org", "org-root");
+            foreach (string? sub in new[] { "google", "microsoft", "github", "example" })
+            {
+                b.TryAdd($"{sub}.com", sub);
+                b.TryAdd($"www.{sub}.com", sub);
+                b.TryAdd($"api.{sub}.com", sub);
+                b.TryAdd($"mail.{sub}.com", sub);
+            }
+            b.TryAdd(BuildDeepDomain(), "deep");
+        }
+
+        private static void SeedDict(ConcurrentDictionary<string, string> d)
+        {
+            d.TryAdd("com", "com-root");
+            d.TryAdd("org", "org-root");
+            foreach (string? sub in new[] { "google", "microsoft", "github", "example" })
+            {
+                d.TryAdd($"{sub}.com", sub);
+                d.TryAdd($"www.{sub}.com", sub);
+                d.TryAdd($"api.{sub}.com", sub);
+                d.TryAdd($"mail.{sub}.com", sub);
+            }
+            d.TryAdd(BuildDeepDomain(), "deep");
+        }
+
+        private static void SeedTrie(DnsTrie<string> t)
+        {
+            t.Set("com", "com-root");
+            t.Set("org", "org-root");
+            foreach (string? sub in new[] { "google", "microsoft", "github", "example" })
+            {
+                t.Set($"{sub}.com", sub);
+                t.Set($"www.{sub}.com", sub);
+                t.Set($"api.{sub}.com", sub);
+                t.Set($"mail.{sub}.com", sub);
+            }
+            t.Set(BuildDeepDomain(), "deep");
+        }
+
+        private void SeedAll()
+        {
+            SeedBackend(_defaultTree);
+            SeedBackend(_dbBackedTree);
+            SeedBackend(_dbBackedTree2);
+            SeedBackend(_mmapBackedTree);
+            SeedBackend(_mmapBackedTree2);
+            SeedDict(_concurrentDict);
+            SeedTrie(_dnsTrie);
+            SeedTrie(_dnsTrieWireFormat);
         }
     }
 }

@@ -1,12 +1,15 @@
-﻿using BenchmarkDotNet.Running;
+﻿using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Running;
 
 namespace BenchmarkTreeBackends
 {
-    internal class Program
+    public static class Program
     {
-        private static void Main(string[] args)
+        public static void Main(string[] args)
         {
-            BenchmarkRunner.Run<DomainTreeBenchmark>();
+                BenchmarkRunner.Run<DomainTreeBenchmark>(
+                    ManualConfig.Create(DefaultConfig.Instance)
+                                .WithOptions(ConfigOptions.DisableOptimizationsValidator));
         }
     }
 }
